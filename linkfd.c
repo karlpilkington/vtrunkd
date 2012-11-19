@@ -942,11 +942,14 @@ int ag_switcher() {
     get_format_tcp_info(chan_info, chan_amt);
     /*find my max send_q*/
     uint32_t my_max_send_q = chan_info[0]->send_q;
+    double my_max_rtt = chan_info[0]->rtt;
+    double my_max_rtt_var = chan_info[0]->rtt_var;
     int my_max_send_q_chan_num = 0;
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[0]->recv_q, chan_info[0]->send_q, 0);
 #endif
-    for (int i = 1; i < chan_amt; i++) {
+    sem_wait(&(shm_conn_info->stats_sem));
+    for (int i = 1; i < chan_amt; i++) { // skip 0 - service channel
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[i]->recv_q, chan_info[i]->send_q, i);
 #endif
@@ -954,11 +957,22 @@ int ag_switcher() {
             my_max_send_q = chan_info[i]->send_q;
             my_max_send_q_chan_num = i;
         }
+        if (my_max_rtt < chan_info[i]->rtt) {
+            my_max_rtt = chan_info[i]->rtt;
+        }
+        if (my_max_rtt_var < chan_info[i]->rtt_var) {
+            my_max_rtt_var = chan_info[i]->rtt_var;
+        }
+        shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].send_q = chan_info[i]->send_q;
+        shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].rtt = chan_info[i]->rtt;
+        shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].rtt_var = chan_info[i]->rtt_var;
     }
     /*store my max send_q in shm and find another max send_q*/
     uint32_t min_of_max_send_q = ((uint32_t)-1);
     uint32_t max_of_max_speed = 0;
-    sem_wait(&(shm_conn_info->stats_sem));
+    uint32_t jitterBytes = 0;
+    uint32_t bytesInFlight = 0;
+//    sem_wait(&(shm_conn_info->stats_sem));
     shm_conn_info->stats[my_physical_channel_num].max_send_q = my_max_send_q;
     for (int i = 0; i < 2; i++) {
         if ((min_of_max_send_q > shm_conn_info->stats[i].max_send_q)) {
@@ -966,6 +980,10 @@ int ag_switcher() {
         }
         if ((max_of_max_speed < shm_conn_info->stats[i].max_upload_speed)) {
             max_of_max_speed = shm_conn_info->stats[i].max_upload_speed;
+        }
+        if (i != my_physical_channel_num) {
+            jitterBytes = (uint32_t) (((double) (shm_conn_info->stats[i].max_upload_speed)) * my_max_rtt_var);
+            bytesInFlight += shm_conn_info->stats[i].max_send_q;
         }
     }
     sem_post(&(shm_conn_info->stats_sem));
@@ -1008,11 +1026,13 @@ int ag_switcher() {
 
 //    uint32_t result = (send_q_delta + sendbuff) + ((window_overrun / max_speed) * max_of_max_speed) + ((int32_t) (chan_info[my_max_send_q_chan_num]->rtt_var)) * max_speed + 7000;
 //    uint32_t result = (send_q_delta + sendbuff) + max_of_max_speed*chan_info[my_max_send_q_chan_num]->rtt_var + ((window_overrun / max_speed) * max_of_max_speed);
-    uint32_t result = my_max_send_q;// + (chan_info[my_max_send_q_chan_num]->rtt_var/max_speed);
+    uint32_t result = jitterBytes + send_q_delta;// + (chan_info[my_max_send_q_chan_num]->rtt_var/max_speed);
 #ifdef DEBUGG
     vtun_syslog(LOG_INFO, "left result - %i max_reorder_byte - %u, window_overrun - %i, rtt - %f rtt_var - %f",result,max_reorder_byte,window_overrun,chan_info[my_max_send_q_chan_num]->rtt, chan_info[my_max_send_q_chan_num]->rtt_var);
 #endif
     if (result < max_reorder_byte) {
+        hold_mode = 0;
+    } else if (jitterBytes < bytesInFlight) {
         hold_mode = 0;
     } else {
         hold_mode = 1;
@@ -1454,6 +1474,12 @@ int res123 = 0;
                 vtun_syslog(LOG_INFO, "download speed %lu packet/s physical channel %d logical channel %d port %d",
                         shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].down_packet_speed, my_physical_channel_num, i, channel_ports[i]);
             }
+            sem_wait(&(shm_conn_info->stats_sem));
+            shm_conn_info->stats[my_physical_channel_num].upload_speed = shm_conn_info->stats[my_physical_channel_num].speed_chan_data[0].up_current_speed;
+            for (int i = 1; i < chan_amt; i++) {
+                shm_conn_info->stats[my_physical_channel_num].upload_speed += shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].up_current_speed;
+            }
+            sem_post(&(shm_conn_info->stats_sem));
             vtun_syslog(LOG_INFO, "Channel mode %u AG ready flags %u channels_mask %u xor result %u", tmp_flags, tmp_AG, tmp_channels_mask, (tmp_AG ^ tmp_channels_mask));
                if(cur_time.tv_sec - last_tick >= lfd_host->TICK_SECS) {
 

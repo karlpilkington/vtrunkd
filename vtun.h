@@ -315,6 +315,9 @@ struct speed_chan_data_struct {
 
     uint32_t down_packets; // per last_tick. need for speed calculation
     uint32_t down_packet_speed;
+    uint32_t send_q;
+    double rtt;
+    double rtt_var;
 };
 
 /**
@@ -330,8 +333,11 @@ struct conn_stats {
     uint32_t time_lag_remote;// calculated here
     uint32_t time_lag; // get from another side
     struct speed_chan_data_struct speed_chan_data[MAX_TCP_LOGICAL_CHANNELS];
+    uint32_t upload_speed;
     uint32_t max_upload_speed;
     uint32_t max_send_q;
+    double max_rtt;
+    double max_rtt_var;
 };
 
 
