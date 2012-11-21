@@ -938,7 +938,9 @@ int ag_switcher() {
     } else {
         my_max_speed_chan = max_speed_chan;
     }
+#ifdef DEBUGG
     vtun_syslog(LOG_INFO, "get_format_tcp_info() is calling by %i", my_physical_channel_num);
+#endif
     get_format_tcp_info(chan_info, chan_amt);
     /*find my max send_q*/
     uint32_t my_max_send_q = chan_info[0]->send_q;
@@ -951,16 +953,16 @@ int ag_switcher() {
     sem_wait(&(shm_conn_info->stats_sem));
     for (int i = 1; i < chan_amt; i++) { // skip 0 - service channel
 #ifdef DEBUGG
-        vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[i]->recv_q, chan_info[i]->send_q, i);
+        vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u  rtt - %f rtt_var - %f Logical channel %i", chan_info[i]->recv_q, chan_info[i]->send_q, chan_info[i]->rtt, chan_info[i]->rtt_var, i);
 #endif
         if (my_max_send_q < chan_info[i]->send_q) {
             my_max_send_q = chan_info[i]->send_q;
             my_max_send_q_chan_num = i;
-        }
-        if (my_max_rtt < chan_info[i]->rtt) {
+//        }
+//        if (my_max_rtt < chan_info[i]->rtt) {
             my_max_rtt = chan_info[i]->rtt;
-        }
-        if (my_max_rtt_var < chan_info[i]->rtt_var) {
+//        }
+//        if (my_max_rtt_var < chan_info[i]->rtt_var) {
             my_max_rtt_var = chan_info[i]->rtt_var;
         }
         shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].send_q = chan_info[i]->send_q;
@@ -1003,17 +1005,17 @@ int ag_switcher() {
     vtun_syslog(LOG_INFO, "logical_chanel num - %i MAX_REORDER * mss - %u mss - %u cwnd - %u send_q_c - %u send_q_m - %u",my_max_send_q_chan_num, max_reorder_byte, chan_info[my_max_send_q_chan_num]->mss, chan_info[my_max_send_q_chan_num]->cwnd, send_q_c, my_max_send_q);
     vtun_syslog(LOG_INFO, "logical_chanel num - %i send_q_delta - %i , max_logic_speed %i kb/s min_of_max_send_q - %u",my_max_send_q_chan_num, send_q_delta, max_of_max_speed, min_of_max_send_q);
     vtun_syslog(LOG_INFO, "logical_chanel num - %i last hold_mode - %i",my_max_send_q_chan_num, hold_mode);
-#endif
     vtun_syslog(LOG_INFO, "channel magic speed %u KB/s max speed - %u , port %d AG_FLOW_FACTOR - %f", chan_info[my_max_send_q_chan_num]->send / 1000, max_speed, channel_ports[max_speed_chan], AG_FLOW_FACTOR);
+#endif
     if (max_speed == 0) {
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "max_speed == 0");
 #endif
-        hold_mode = 0;
-#ifdef DEBUGG
-        vtun_syslog(LOG_INFO, "hold_mode - %i", hold_mode);
-#endif
-        return 0;
+//        hold_mode = 0;
+//#ifdef DEBUGG
+//        vtun_syslog(LOG_INFO, "hold_mode - %i", hold_mode);
+//#endif
+//        return 0;
     }
     int32_t window_overrun = (int32_t) my_max_send_q - (int32_t) send_q_c;
     if (window_overrun < 0) {
@@ -1028,7 +1030,7 @@ int ag_switcher() {
 //    uint32_t result = (send_q_delta + sendbuff) + max_of_max_speed*chan_info[my_max_send_q_chan_num]->rtt_var + ((window_overrun / max_speed) * max_of_max_speed);
     uint32_t result = jitterBytes + send_q_delta;// + (chan_info[my_max_send_q_chan_num]->rtt_var/max_speed);
 #ifdef DEBUGG
-    vtun_syslog(LOG_INFO, "left result - %i max_reorder_byte - %u, jitterBytes - %i bytesInFlight - %i, rtt - %f rtt_var - %f",result,max_reorder_byte,jitterBytes,bytesInFlight,my_max_rtt_var, my_max_rtt_var);
+    vtun_syslog(LOG_INFO, "left result - %i max_reorder_byte - %u, jitterBytes - %i bytesInFlight - %i, rtt - %f rtt_var - %f",result,max_reorder_byte,jitterBytes,bytesInFlight,my_max_rtt, my_max_rtt_var);
 #endif
     if (result < max_reorder_byte) {
         hold_mode = 0;
@@ -1415,6 +1417,17 @@ int res123 = 0;
         int timercmp_result;
         timercmp_result = timercmp(&tv_tmp_tmp_tmp, &get_info_time, >=);
         if (( timercmp_result) | ((dirty_seq_num % (lfd_host->MAX_REORDER / 10)) == 0)) {
+            if (timercmp_result) {
+                vtun_syslog(LOG_INFO, "PING ...");
+                // ping ALL channels!
+                for (i = 0; i < chan_amt; i++) { // TODO: remove ping DUP code
+                    if ((len1 = proto_write(channels[i], buf, VTUN_ECHO_REQ)) < 0) {
+                        vtun_syslog(LOG_ERR, "Could not send echo request chan %d reason %s (%d)", i, strerror(errno), errno);
+                        break;
+                    }
+                    shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].up_data_len_amt += len1;
+                }
+            }
             tmp_flags = ag_switcher();
             sem_wait(&(shm_conn_info->AG_flags_sem));
             if (tmp_flags == 1) {
@@ -1427,7 +1440,7 @@ int res123 = 0;
             sem_post(&(shm_conn_info->AG_flags_sem));
             get_info_time_last.tv_sec = cur_time.tv_sec;
             get_info_time_last.tv_usec = cur_time.tv_usec;
-            if (timercmp_result) {
+            if (0) {
                 vtun_syslog(LOG_INFO, "PING ...");
                 // ping ALL channels!
                 for (i = 0; i < chan_amt; i++) { // TODO: remove ping DUP code
