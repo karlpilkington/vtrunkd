@@ -100,7 +100,7 @@ struct my_ip {
 
 // flags:
 uint8_t time_lag_ready;
-
+int my_max_send_q_chan_num;
 int my_physical_channel_num = 0;
 char rxmt_mode_request = 0; // flag
 long int weight = 0; // bigger weight more time to wait(weight == penalty)
@@ -946,7 +946,7 @@ int ag_switcher() {
     uint32_t my_max_send_q = chan_info[0]->send_q;
     double my_max_rtt = chan_info[0]->rtt;
     double my_max_rtt_var = chan_info[0]->rtt_var;
-    int my_max_send_q_chan_num = 0;
+    my_max_send_q_chan_num = 0;
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[0]->recv_q, chan_info[0]->send_q, 0);
 #endif
@@ -1074,7 +1074,7 @@ int lfd_linker(void)
 
     struct timeval send1; // calculate send delay
     struct timeval send2;
-
+    my_max_send_q_chan_num = 0;
     long int last_action = 0; // for ping; TODO: too many vars... this even has clone ->
     long int last_net_read = 0; // for timeout;
 
@@ -1420,11 +1420,11 @@ int res123 = 0;
             if (timercmp_result) {
                 vtun_syslog(LOG_INFO, "PING ...");
                 // ping ALL channels!
-                for (i = 0; i < chan_amt; i++) { // TODO: remove ping DUP code
-                    if ((len1 = proto_write(channels[i], buf, VTUN_ECHO_REQ)) < 0) {
+//                for (i = 0; i < chan_amt; i++) { // TODO: remove ping DUP code
+                    if ((len1 = proto_write(channels[my_max_send_q_chan_num], buf, VTUN_ECHO_REQ)) < 0) {
                         vtun_syslog(LOG_ERR, "Could not send echo request chan %d reason %s (%d)", i, strerror(errno), errno);
-                        break;
-                    }
+//                        break;
+//                    }
                     shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].up_data_len_amt += len1;
                 }
             }
