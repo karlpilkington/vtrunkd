@@ -366,6 +366,7 @@ struct conn_info {
     sem_t AG_flags_sem; // semaphore for AG_ready_flags and channels_mask
     uint16_t AG_ready_flags; // contain flags for all physical channels 1 - retransmit mode, 0 - ready to aggregation
     uint16_t channels_mask; // 1 - channel is working 0 - channel is dead
+    int32_t send_q_limit; // TODO: make for each phy(/log?) chan!
 };
 
 struct resent_chk {

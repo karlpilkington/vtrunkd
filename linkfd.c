@@ -36,7 +36,6 @@
  *
  */
 
-#define JSON
 
 #define _GNU_SOURCE
 #include "config.h"
@@ -118,8 +117,10 @@ short retransmit_count = 0;
 char channel_mode = MODE_NORMAL;
 int hold_mode; // 1 - hold 0 - normal
 uint16_t tmp_flags, tmp_channels_mask, tmp_AG;
-int buf_len, incomplete_seq_len = 0, rtt = 0, rtt_old=0, rtt_old_old=0; // in ms;
+int buf_len = 0, max_buf_len = 0, incomplete_seq_len = 0, rtt = 0, rtt_old=0, rtt_old_old=0; // in ms;
 int proto_err_cnt = 0;
+
+int32_t send_q_limit = 20000; // default limit
 
 /* Host we are working with.
  * Used by signal handlers that's why it is global.
@@ -165,6 +166,11 @@ int delay_acc; // accumulated send delay
 int delay_cnt;
 uint32_t my_max_speed_chan;
 uint32_t my_holded_max_speed;
+
+
+uint16_t remote_buf_len = 0, rbl_c=0;
+uint32_t max_remote_lws = 0;
+uint32_t old_max_remote_lws = 0;
 //uint32_t my_max_send_q;
 
 int assert_cnt(int where) {
@@ -1011,8 +1017,9 @@ int ag_switcher() {
         vtun_syslog(LOG_INFO, "window_overrun zeroing");
 #endif
     }
-    uint32_t send_q_limit = ((float)(chan_info[my_max_send_q_chan_num]->send)*(float)rtt)/1000;
-    send_q_limit = send_q_limit < 20000 ? 20000 : send_q_limit;
+    //uint32_t send_q_limit = ((float)(chan_info[my_max_send_q_chan_num]->send)*(float)rtt)/1000;
+    //send_q_limit = send_q_limit < 20000 ? 20000 : send_q_limit;
+    // do a linear increment
     float k =0;
 //    uint32_t result = (send_q_delta + sendbuff) + ((window_overrun / max_speed) * max_of_max_speed) + ((int32_t) (chan_info[my_max_send_q_chan_num]->rtt_var)) * max_speed + 7000;
 //    uint32_t result = (send_q_delta + sendbuff) + max_of_max_speed*chan_info[my_max_send_q_chan_num]->rtt_var + ((window_overrun / max_speed) * max_of_max_speed);
@@ -1020,6 +1027,7 @@ int ag_switcher() {
 #ifdef DEBUGG
     vtun_syslog(LOG_INFO, "left result - %i max_reorder_byte - %u, window_overrun - %i, rtt - %f rtt_var - %f",result,max_reorder_byte,window_overrun,chan_info[my_max_send_q_chan_num]->rtt, chan_info[my_max_send_q_chan_num]->rtt_var);
 #endif
+    if (buf_len > max_buf_len) max_buf_len = buf_len;
 #ifdef JSON
     vtun_syslog(LOG_INFO, "{\"p_chan_num\":%i,\"l_chan_num\":%i,\"max_reorder_byte\":%u,\"send_q_limit\":%u,\"my_max_send_q\":%u,\"rtt\":%f,\"rtt_var\":%f,\"my_rtt\":%i,\"cwnd\":%u,\"incomplete_seq_len\":%i,\"rxmits\":%i,\"buf_len\":%i,\"magic_upload\":%i,\"upload\":%i,\"download\":%i,\"k\":%f}",
                 my_physical_channel_num, my_max_send_q_chan_num, max_reorder_byte, send_q_limit, my_max_send_q, chan_info[my_max_send_q_chan_num]->rtt,
@@ -1075,6 +1083,11 @@ int lfd_linker(void)
     unsigned short flag_var; // packet struct part
 
     char succ_flag; // return flag
+
+
+    sem_wait(&(shm_conn_info->common_sem));
+    if( shm_conn_info->send_q_limit == 0) shm_conn_info->send_q_limit = 20000;
+    sem_post(&(shm_conn_info->common_sem));
 
     int dev_my_cnt = 0; // statistic and watchdog
     
@@ -1392,7 +1405,7 @@ int res123 = 0;
     alarm(lfd_host->MAX_IDLE_TIMEOUT);
     struct timeval get_info_time, get_info_time_last, tv_tmp_tmp_tmp;
     get_info_time.tv_sec = 0;
-    get_info_time.tv_usec = 50000;
+    get_info_time.tv_usec = 10000; // was 50000, TODO: compute based on pkts and speed. 100kbps = 100pkts/sec, 5 pkts = 5/100 sec
     get_info_time_last.tv_sec = 0;
     get_info_time_last.tv_usec = 0;
 
@@ -1404,7 +1417,7 @@ int res123 = 0;
         errno = 0;
         gettimeofday(&cur_time, NULL);
         timersub(&cur_time, &get_info_time_last, &tv_tmp_tmp_tmp);
-        if (( timercmp(&tv_tmp_tmp_tmp, &get_info_time, >=)) | ((dirty_seq_num % (lfd_host->MAX_REORDER / 10)) == 0)) {
+        if (( timercmp(&tv_tmp_tmp_tmp, &get_info_time, >=)) | ((dirty_seq_num % (lfd_host->MAX_REORDER / 5)) == 0)) { // instead of 10 pkts, TODO: config granularity value
             tmp_flags = ag_switcher();
             sem_wait(&(shm_conn_info->AG_flags_sem));
             if (tmp_flags == 1) {
@@ -1473,6 +1486,7 @@ int res123 = 0;
             	   // calculate mean value and send time_lag to another side
             	   //github.com - Issue #11
 				int time_lag_cnt = 0, time_lag_sum = 0;
+                last_tick = cur_time.tv_sec;
 				for (int i = 0; i < MAX_TCP_LOGICAL_CHANNELS; i++) {
 					if (time_lag_info_arr[i].time_lag_cnt != 0) {
 						time_lag_cnt++;
@@ -1492,7 +1506,8 @@ int res123 = 0;
 				uint16_t pid_remote;
 				for (int i = 0; i < chan_amt; i++) {
 					sem_wait(&(shm_conn_info->stats_sem));
-					time_lag_remote = shm_conn_info->stats[i].time_lag_remote;
+					time_lag_remote = shm_conn_info->stats[i].time_lag_remote + (max_buf_len << 20); // MAGIC here! we pack buf_len in upper 12 bits (max. 4000pkts (2000??))!
+                    max_buf_len = 0;
 					pid_remote = shm_conn_info->stats[i].pid_remote;
 					sem_post(&(shm_conn_info->stats_sem));
 					uint32_t time_lag_remote_h = htonl(time_lag_remote);
@@ -1510,7 +1525,7 @@ int res123 = 0;
                         vtun_syslog(LOG_ERR, "memcpy imf");
                         err = 1;
                     }
-                    vtun_syslog(LOG_INFO, "Sending time lag.....");
+                    vtun_syslog(LOG_INFO, "Sending time lag..... %lu ", time_lag_remote);
                     if ((len1 = proto_write(channels[0], buf, ((sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t)) | VTUN_BAD_FRAME))) < 0) {
                         vtun_syslog(LOG_ERR, "Could not send time_lag + pid pkt; exit"); //?????
                         linker_term = TERM_NONFATAL; //?????
@@ -1528,7 +1543,6 @@ int res123 = 0;
                    vtun_syslog(LOG_INFO, "ti! s/r %d %d %d %d %d %d / %d %d %d %d %d %d", statb.bytes_rcvd_chan[0],statb.bytes_rcvd_chan[1],statb.bytes_rcvd_chan[2],statb.bytes_rcvd_chan[3],statb.bytes_rcvd_chan[4],statb.bytes_rcvd_chan[5],    statb.bytes_sent_chan[0],statb.bytes_sent_chan[1],statb.bytes_sent_chan[2],statb.bytes_sent_chan[3],statb.bytes_sent_chan[4],statb.bytes_sent_chan[5] );
        #endif
                    dev_my_cnt = 0;
-                   last_tick = cur_time.tv_sec;
                    shm_conn_info->alive = cur_time.tv_sec;
                    delay_acc = 0;
                    delay_cnt = 0;
@@ -1860,12 +1874,46 @@ int res123 = 0;
                             vtun_syslog(LOG_INFO, "received FRAME_LAST_WRITTEN_SEQ lws %lu chan %d", ntohl(*((unsigned long *)buf)), chan_num);
 #endif
                             if( ntohl(*((unsigned long *)buf)) > shm_conn_info->write_buf[chan_num].remote_lws) shm_conn_info->write_buf[chan_num].remote_lws = ntohl(*((unsigned long *)buf));
+                            if ( shm_conn_info->write_buf[chan_num].remote_lws > max_remote_lws ) {
+                                max_remote_lws = shm_conn_info->write_buf[chan_num].remote_lws; 
+                            }
                             continue;
 						} else if (flag_var == FRAME_TIME_LAG) {
 						    int recv_lag = 0;
 							// Issue #11 get time_lag from net here
 							// get pid and time_lag
-							time_lag_local.time_lag=ntohl(((struct time_lag_packet *) buf)->time_lag);
+                            // now extract buf_len
+                            // TODO: Watch amt of missing pkts on each physical and logical chan!
+                            remote_buf_len = ntohl(((struct time_lag_packet *) buf)->time_lag) >> 20;
+
+                            sem_wait(&(shm_conn_info->common_sem));
+                            send_q_limit = shm_conn_info->send_q_limit;
+
+                            // zero is very suspitious
+                            if((remote_buf_len == 0) && (max_remote_lws != old_max_remote_lws) ) {
+                                rbl_c++; // = chan_amt??
+                                old_max_remote_lws = max_remote_lws;
+                            }
+                            if ( ((remote_buf_len == 0) && (rbl_c > 3)) || (remote_buf_len != 0) ) {
+                                    rbl_c = 0;
+                                    if( remote_buf_len > 60 ) {
+                                        send_q_limit = send_q_limit - (send_q_limit >> 2);
+                                    } else if ( remote_buf_len < 40 ) {
+                                        send_q_limit = send_q_limit + (send_q_limit >> 3);
+                                    }
+
+                                    if (send_q_limit < 5000) send_q_limit = 5000;
+                                    if (send_q_limit > 200000) send_q_limit = 200000;
+                            }
+
+                            shm_conn_info->send_q_limit = send_q_limit;
+                            sem_post(&(shm_conn_info->common_sem));
+
+#ifdef DEBUGG
+                            vtun_syslog(LOG_INFO, "received remote_buf_len %i current send_q_limit %i max_remote_lws %lu rbl_c %i", remote_buf_len, send_q_limit, max_remote_lws, rbl_c);
+#endif
+
+							time_lag_local.time_lag=ntohl(((struct time_lag_packet *) buf)->time_lag) - (remote_buf_len << 20);
 							time_lag_local.pid = ntohs(((struct time_lag_packet *) buf)->pid);
 							sem_wait(&(shm_conn_info->stats_sem));
 							for (int i = 0; i < MAX_TCP_PHYSICAL_CHANNELS; i++) {

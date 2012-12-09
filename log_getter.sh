@@ -3,7 +3,7 @@
 # 1. name server VM srv-32
 # 2. name client VM cli-32
 # 3. set up 3 net cards eth1...eth3 for each VM 
-# 4. add frac_digits(3) to syslog-ng options
+# 4. add frac_digits(3); keep_timestamp(no); to syslog-ng options
 
 DBOXHOST=grandrew@alternet.homelinux.net # host to upload JSON logs to and parse them on
 DBOXHOST_PORT=10023
