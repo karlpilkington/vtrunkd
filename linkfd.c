@@ -476,8 +476,8 @@ int get_fast_resend_frame(int *conn_num, char *buf, int *len, unsigned long *seq
 /**
  * Function for trying resend
  */
-int retransmit_send(char *out2, int mypid) {
-    int len = 0, send_counter = 0;
+int retransmit_send(char *out2) {
+    int len = 0, send_counter = 0, mypid;
     unsigned long top_seq_num, seq_num_tmp = 1, remote_lws = SEQ_START_VAL;
     for (int i = 1; i <= chan_amt; i++) {
         sem_wait(&(shm_conn_info->common_sem));
@@ -551,7 +551,7 @@ int retransmit_send(char *out2, int mypid) {
  *
  *
  */
-int select_devread_send(char *buf, char *out2, int mypid) {
+int select_devread_send(char *buf, char *out2) {
     int len, select_ret, idx;
     unsigned long tmp_seq_counter = 0;
     int chan_num;
@@ -672,7 +672,7 @@ int select_devread_send(char *buf, char *out2, int mypid) {
     vtun_syslog(LOG_INFO, "READY - descriptor %i channel %d");
 #endif
     sem_wait(&(shm_conn_info->resend_buf_sem));
-    seqn_add_tail(chan_num, buf, len, tmp_seq_counter, channel_mode, mypid);
+    seqn_add_tail(chan_num, buf, len, tmp_seq_counter, channel_mode, info.pid);
     sem_post(&(shm_conn_info->resend_buf_sem));
 
     statb.bytes_sent_norm += len;
@@ -1118,7 +1118,6 @@ int lfd_linker(void)
         vtun_syslog(LOG_INFO, "sysconf(_SC_NPROCESSORS_ONLN) return error");
     }
 #endif
-    int mypid = getpid(); // watchdog; current pid
     int sender_pid; // tmp var for resend detect my own pid
     /* Create if need, pid directory*/
     if (mkdir(LINKFD_PID_DIR, S_IRWXU | S_IRWXG | S_IRWXO) == -1) {
@@ -1134,9 +1133,9 @@ int lfd_linker(void)
     if (mypid_file < 0) {
         vtun_syslog(LOG_ERR, "Can't create temp lock file %s", pid_file);
     }
-    len = sprintf(mypid_str, "%d\n", mypid);
+    len = sprintf(mypid_str, "%d\n", info.pid);
     if (write(mypid_file, mypid_str, len) != len) {
-        vtun_syslog(LOG_ERR, "Can't write PID %d to %s", mypid, pid_file);
+        vtun_syslog(LOG_ERR, "Can't write PID %d to %s", info.pid, pid_file);
     }
     unsigned long last_last_written_seq[MAX_TCP_LOGICAL_CHANNELS]; // for LWS notification TODO: move this to write_buf!
 
@@ -1926,7 +1925,7 @@ int res123 = 0;
                             continue;
                         }
 
-                        if( ((lfd_host->flags & VTUN_PROT_MASK) == VTUN_TCP) && (sender_pid == mypid)) {
+                        if( ((lfd_host->flags & VTUN_PROT_MASK) == VTUN_TCP) && (sender_pid == info.pid)) {
                             vtun_syslog(LOG_INFO, "Will not resend my own data! It is on the way! frame len %d seq_num %lu chan %d", len, ntohl(*((unsigned long *)buf)), chan_num);
                             continue;
                         }
@@ -2022,7 +2021,7 @@ int res123 = 0;
                     gettimeofday(&work_loop1, NULL );
 #endif
                     sem_wait(write_buf_sem);
-                    incomplete_seq_len = write_buf_add(chan_num_virt, out, len, seq_num, incomplete_seq_buf, &buf_len, mypid, &succ_flag);
+                    incomplete_seq_len = write_buf_add(chan_num_virt, out, len, seq_num, incomplete_seq_buf, &buf_len, info.pid, &succ_flag);
 
                     if(succ_flag == -2) statb.pkts_dropped++; // TODO: optimize out to wba
                     if(buf_len == 1) { // to avoid dropping first out-of order packet in sequence
@@ -2241,14 +2240,14 @@ int res123 = 0;
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "debug: R_MODE");
 #endif
-            len = retransmit_send(out2, mypid);
+            len = retransmit_send(out2);
             if (len == CONTINUE_ERROR) {
                 len = 0;
             } else if (len == LASTPACKETMY_NOTIFY) { // if this physical channel had sent last packet
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "debug: R_MODE main send");
 #endif
-                len = select_devread_send(buf, out2, mypid);
+                len = select_devread_send(buf, out2);
                 if (len == BREAK_ERROR) {
                     vtun_syslog(LOG_INFO, "select_devread_send() R_MODE BREAK_ERROR");
                     break;
@@ -2262,7 +2261,7 @@ int res123 = 0;
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "debug: AG_MODE");
 #endif
-            len = select_devread_send(buf, out2, mypid);
+            len = select_devread_send(buf, out2);
             if (len > 0) {
                 dirty_seq_num++;
 #ifdef DEBUGG
@@ -2358,15 +2357,19 @@ int res123 = 0;
     return 0;
 }
 
-/* Link remote and local file descriptors */
+/**
+ *  Link remote and local file descriptors.
+ *  We should initialize all global variable here if it possible.
+ */
 int linkfd(struct vtun_host *host, struct conn_info *ci, int ss, int physical_channel_num)
 {
     struct sigaction sa, sa_oldterm, sa_oldint, sa_oldhup;
     int old_prio;
-
+    /** Global initialization section for variable and another things*/
     lfd_host = host;
     info.srv = ss;
     shm_conn_info = ci;
+    info.pid = getpid();
     info.process_num = physical_channel_num;
     sem_wait(&(shm_conn_info->AG_flags_sem));
     shm_conn_info->channels_mask |= (1 << info.process_num); // add channel num to binary mask
