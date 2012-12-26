@@ -360,7 +360,7 @@ struct logical_status {
     int32_t ACK_speed[10];      /**< Speed based on how fast ACK packets come back. Last 10 measurements @see avg_count */
     int32_t ACK_speed_avg;  /**< Moving average of @see ACK_speed */
     uint avg_count;         /**< Counter for @see ACK_speed_avg calculate*/
-
+    int hold;   /**< 1 - channel in the hold mode, 0 - normal */
 };
 
 /**
@@ -369,7 +369,7 @@ struct logical_status {
  */
 struct phisical_status {
     /** Common information */
-    int my_phisical_channel_num;    /**< Current physical channel's number */
+    int process_num;    /**< Current physical channel's number */
     int pid; /**< Our pid is got on this side by getpid()  */
     int remote_pid; /**< Pid is got from another side by net */
     int tun_device; /**< /dev/tun descriptor */
