@@ -105,7 +105,6 @@ char rxmt_mode_request = 0; // flag
 long int weight = 0; // bigger weight more time to wait(weight == penalty)
 long int weight_cnt = 0;
 int acnt = 0; // assert variable
-short int chan_amt = 0; // Number of logical channels already established(created)
 char *out_buf;
 uint16_t dirty_seq_num;
 int sendbuff;
@@ -295,7 +294,7 @@ int missing_resend_buffer (int chan_num, unsigned long buf[], int *buf_len) {
 }
 
 int get_write_buf_wait_data() {
-    for (int i = 0; i < chan_amt; i++) {
+    for (int i = 0; i < info.channel_amount; i++) {
         if (shm_conn_info->frames_buf[shm_conn_info->write_buf[i].frames.rel_head].seq_num == (shm_conn_info->write_buf[i].last_written_seq + 1)) {
             return 1;
         }
@@ -307,7 +306,7 @@ int fix_free_writebuf() {
     int i, j, st, found;
 
     for(j=0; j<FRAME_BUF_SIZE; j++) {
-        for(i=0; i<chan_amt; i++) {
+        for (i = 0; i < info.channel_amount; i++) {
             st = shm_conn_info->write_buf[i].frames.rel_head;
             found = 0;
             acnt=0;
@@ -479,7 +478,7 @@ int get_fast_resend_frame(int *conn_num, char *buf, int *len, unsigned long *seq
 int retransmit_send(char *out2) {
     int len = 0, send_counter = 0, mypid;
     unsigned long top_seq_num, seq_num_tmp = 1, remote_lws = SEQ_START_VAL;
-    for (int i = 1; i <= chan_amt; i++) {
+    for (int i = 1; i <= info.channel_amount; i++) {
         sem_wait(&(shm_conn_info->common_sem));
         top_seq_num = shm_conn_info->seq_counter[i];
         sem_post(&(shm_conn_info->common_sem));
@@ -638,7 +637,7 @@ int select_devread_send(char *buf, char *out2) {
             hash += tcp->source;
             hash += tcp->dest;
         }
-        chan_num = (hash % ((int) chan_amt - 1)) + 1; // send thru 1-n channel
+        chan_num = (hash % (info.channel_amount - 1)) + 1; // send thru 1-n channel
         sem_wait(&(shm_conn_info->common_sem));
         (shm_conn_info->seq_counter[chan_num])++;
         tmp_seq_counter = shm_conn_info->seq_counter[chan_num];
@@ -911,7 +910,7 @@ int ag_switcher() {
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Server %i is calling ag_switcher()", my_physical_channel_num);
 #endif
-        for (int i = 0; i < chan_amt; i++) {
+        for (int i = 0; i < info.channel_amount; i++) {
             chan_info[i]->rport = channel_ports[i];
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "Server %i logic channel - %i lport - %i %i", my_physical_channel_num, i, chan_info[i]->rport, channel_ports[i]);
@@ -921,7 +920,7 @@ int ag_switcher() {
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Client %i is calling ag_switcher()", my_physical_channel_num);
 #endif
-        for (int i = 0; i < chan_amt; i++) {
+        for (int i = 0; i < info.channel_amount; i++) {
             chan_info[i]->lport = channel_ports[i];
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "Client %i logic channel - %i lport - %i %i", my_physical_channel_num, i, chan_info[i]->lport, channel_ports[i]);
@@ -931,7 +930,7 @@ int ag_switcher() {
     int max_speed_chan = 0;
     uint32_t max_speed = 0;
     sem_wait(&(shm_conn_info->stats_sem));
-    for (int i = 1; i < chan_amt; i++) {
+    for (int i = 1; i < info.channel_amount; i++) {
         if (max_speed < shm_conn_info->stats[info.process_num].speed_chan_data[i].up_current_speed) {
             max_speed = shm_conn_info->stats[info.process_num].speed_chan_data[i].up_current_speed;
             max_speed_chan = i;
@@ -946,7 +945,7 @@ int ag_switcher() {
     }
     struct timeval get_format_tcp_info_call;
     gettimeofday(&get_format_tcp_info_call, NULL);
-    if(!get_format_tcp_info(chan_info, chan_amt)) {
+    if(!get_format_tcp_info(chan_info, info.channel_amount)) {
         /*TODO may be need add error counter, because if we have one error
          * we can use previos values. But if we have two error running
          * we should take action */
@@ -959,7 +958,7 @@ int ag_switcher() {
         vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[0]->recv_q, chan_info[0]->send_q, 0);
 #endif
     send_q_full = 0;
-    for (int i = 1; i < chan_amt; i++) {
+    for (int i = 1; i < info.channel_amount; i++) {
 #ifdef DEBUGG
         vtun_syslog(LOG_INFO, "Recv-Q %u Send-Q %u Logical channel %i", chan_info[i]->recv_q, chan_info[i]->send_q, i);
 #endif
@@ -1158,7 +1157,6 @@ int lfd_linker(void)
 
     char ipstr[INET6_ADDRSTRLEN];
     int chan_num = 0, chan_num_virt = 0;
-    chan_amt = 1; // def above
     channels[0] = service_channel;
     int i, j, fd0;
     int break_out = 0;
@@ -1200,13 +1198,11 @@ int lfd_linker(void)
     srand((unsigned int) time(NULL ));
 
     if(info.srv) {
+        /** Server accepted all logical channel here and get and send pid */
         // now read one single byte
         vtun_syslog(LOG_INFO,"Waiting for client to request channels...");
-
-        //todo #11 add sem_post and sem_wait for shm
-        //get and set pid
 		read_n(service_channel, buf, sizeof(uint16_t)+sizeof(uint16_t));
-		chan_amt = ntohs(*((uint16_t *) buf));
+		info.channel_amount = ntohs(*((uint16_t *) buf));
 		sem_wait(&(shm_conn_info->stats_sem));
 		shm_conn_info->stats[info.process_num].pid_remote = ntohs(*((uint16_t *) (buf + sizeof(uint16_t))));
 		time_lag_local.pid_remote = shm_conn_info->stats[info.process_num].pid_remote;
@@ -1217,7 +1213,7 @@ int lfd_linker(void)
 #ifdef DEBUGG
  		vtun_syslog(LOG_ERR,"Remote pid - %d, local pid - %d", time_lag_local.pid_remote, time_lag_local.pid);
 #endif
-        vtun_syslog(LOG_INFO,"Will create %d channels", chan_amt);
+        vtun_syslog(LOG_INFO,"Will create %d channels", info.channel_amount);
 
         // try to bind to portnum my_num+smth:
         memset(&my_addr, 0, sizeof(my_addr));
@@ -1275,9 +1271,9 @@ int res123 = 0;
 
         // now listen to socket, wait for connection
 
-        vtun_syslog(LOG_INFO,"Entering loop to create %d channels", chan_amt);
+        vtun_syslog(LOG_INFO,"Entering loop to create %d channels", info.channel_amount);
         // TODO: how many TCP CONN AMOUNT allowed for server??
-        for(i=1; (i<=chan_amt) && (i<MAX_TCP_LOGICAL_CHANNELS); i++) {
+        for (i = 1; (i <= info.channel_amount) && (i < MAX_TCP_LOGICAL_CHANNELS); i++) {
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO,"Chan %d", i);
 #endif
@@ -1321,8 +1317,8 @@ int res123 = 0;
             channels[i]=fd_tmp;
         }
         channels[0] = service_channel;
-        chan_amt++;
-        for (i = 0; i < chan_amt; i++) {
+        info.channel_amount++;
+        for (i = 0; i < info.channel_amount; i++) {
             if (getpeername(channels[i], (struct sockaddr *) (&rmaddr), &rmaddrlen) < 0) {
                 vtun_syslog(LOG_ERR, "Channels socket getsockname error; retry %s(%d)", strerror(errno), errno);
                 linker_term = TERM_NONFATAL;
@@ -1349,10 +1345,8 @@ int res123 = 0;
 
 
     } else {
-        chan_amt = lfd_host->TCP_CONN_AMOUNT;
-        //todo #11 add sem_post and sem_wait for shm
-        //get and set pid
-    	*((uint16_t *) buf) = htons(chan_amt);
+        /** Send to server information about channel amount and get and send pid */
+    	*((uint16_t *) buf) = htons(info.channel_amount);
     	sem_wait(&(shm_conn_info->stats_sem));
     	*((uint16_t *) (buf + sizeof(uint16_t))) = htons(shm_conn_info->stats[info.process_num].pid);
     	time_lag_local.pid = shm_conn_info->stats[info.process_num].pid;
@@ -1367,7 +1361,7 @@ int res123 = 0;
 #ifdef DEBUGG
  		vtun_syslog(LOG_ERR,"Remote pid - %d, local pid - %d", time_lag_local.pid_remote, time_lag_local.pid);
 #endif
-        chan_amt = 1;
+ 		info.channel_amount = 1;
     }
 
     // we start in a normal mode...
@@ -1437,7 +1431,7 @@ int res123 = 0;
             get_info_time_last.tv_usec = cur_time.tv_usec;
         }
         /* TODO write function for lws sending*/
-        for (i = 0; i < chan_amt; i++) {
+        for (i = 0; i < info.channel_amount; i++) {
         sem_wait(&(shm_conn_info->write_buf_sem));
         unsigned long last_lws_notified_tmp = shm_conn_info->write_buf[i].last_lws_notified;
         unsigned long last_written_seq_tmp = shm_conn_info->write_buf[i].last_written_seq;
@@ -1465,7 +1459,7 @@ int res123 = 0;
            */
           if( timercmp(&tv_tmp, &timer_resolution, >=) ) {
 
-            for (int i = 0; i < chan_amt; i++) {
+            for (int i = 0; i < info.channel_amount; i++) {
                 // speed(kb/s) calculation
                 sem_wait(&(shm_conn_info->stats_sem));
                 shm_conn_info->stats[info.process_num].speed_chan_data[i].up_current_speed = shm_conn_info->stats[info.process_num].speed_chan_data[i].up_data_len_amt
@@ -1511,7 +1505,7 @@ int res123 = 0;
 				//todo send time_lag for all process(CONN's)
 				uint32_t time_lag_remote;
 				uint16_t pid_remote;
-				for (int i = 0; i < chan_amt; i++) {
+				for (int i = 0; i < info.channel_amount; i++) {
 					sem_wait(&(shm_conn_info->stats_sem));
 					time_lag_remote = shm_conn_info->stats[i].time_lag_remote;
 					pid_remote = shm_conn_info->stats[i].pid_remote;
@@ -1545,7 +1539,7 @@ int res123 = 0;
 
                    if(delay_cnt == 0) delay_cnt = 1;
                    mean_delay = (delay_acc/delay_cnt);
-                   vtun_syslog(LOG_INFO, "tick! cn: %s; md: %d, dacq: %d, w: %d, isl: %d, bl: %d, as: %d, bsn: %d, brn: %d, bsx: %d, drop: %d, rrqrx: %d, rxs: %d, ms: %d, rxmntf: %d, rxm_notf: %d, chok: %d, rtt: %d, lkdf: %d, msd: %d, ch: %d, chsdev: %d, chrdev: %d, mlh: %d, mrh: %d, mld: %d", lfd_host->host, channel_mode, dev_my_cnt, weight, incomplete_seq_len, buf_len, shm_conn_info->normal_senders, statb.bytes_sent_norm,  statb.bytes_rcvd_norm,  statb.bytes_sent_rx,  statb.pkts_dropped, statb.rxmit_req_rx,  statb.rxmits,  statb.mode_switches, statb.rxm_ntf, statb.rxmits_notfound, statb.chok_not, rtt, (cur_time.tv_sec - shm_conn_info->lock_time), mean_delay, chan_amt, std_dev(statb.bytes_sent_chan, chan_amt), std_dev(&statb.bytes_rcvd_chan[1], (chan_amt-1)), statb.max_latency_hit, statb.max_reorder_hit, statb.max_latency_drops);
+                   vtun_syslog(LOG_INFO, "tick! cn: %s; md: %d, dacq: %d, w: %d, isl: %d, bl: %d, as: %d, bsn: %d, brn: %d, bsx: %d, drop: %d, rrqrx: %d, rxs: %d, ms: %d, rxmntf: %d, rxm_notf: %d, chok: %d, rtt: %d, lkdf: %d, msd: %d, ch: %d, chsdev: %d, chrdev: %d, mlh: %d, mrh: %d, mld: %d", lfd_host->host, channel_mode, dev_my_cnt, weight, incomplete_seq_len, buf_len, shm_conn_info->normal_senders, statb.bytes_sent_norm,  statb.bytes_rcvd_norm,  statb.bytes_sent_rx,  statb.pkts_dropped, statb.rxmit_req_rx,  statb.rxmits,  statb.mode_switches, statb.rxm_ntf, statb.rxmits_notfound, statb.chok_not, rtt, (cur_time.tv_sec - shm_conn_info->lock_time), mean_delay, info.channel_amount, std_dev(statb.bytes_sent_chan, info.channel_amount), std_dev(&statb.bytes_rcvd_chan[1], (info.channel_amount-1)), statb.max_latency_hit, statb.max_reorder_hit, statb.max_latency_drops);
        #ifdef DEBUGG
                    vtun_syslog(LOG_INFO, "ti! s/r %d %d %d %d %d %d / %d %d %d %d %d %d", statb.bytes_rcvd_chan[0],statb.bytes_rcvd_chan[1],statb.bytes_rcvd_chan[2],statb.bytes_rcvd_chan[3],statb.bytes_rcvd_chan[4],statb.bytes_rcvd_chan[5],    statb.bytes_sent_chan[0],statb.bytes_sent_chan[1],statb.bytes_sent_chan[2],statb.bytes_sent_chan[3],statb.bytes_sent_chan[4],statb.bytes_sent_chan[5] );
        #endif
@@ -1560,7 +1554,7 @@ int res123 = 0;
                           break;
                       }
                       
-                for (i = 0; i < chan_amt; i++) {
+                for (i = 0; i < info.channel_amount; i++) {
                 sem_wait(&(shm_conn_info->write_buf_sem));
                 unsigned long last_lws_notified_tmp = shm_conn_info->write_buf[i].last_lws_notified;
                 unsigned long last_written_seq_tmp = shm_conn_info->write_buf[i].last_written_seq;
@@ -1583,7 +1577,7 @@ int res123 = 0;
             }
        
                // now check ALL connections
-               for(i=0; i<chan_amt; i++) {
+            for (i = 0; i < info.channel_amount; i++) {
                    sem_wait(&(shm_conn_info->write_buf_sem));
                    timersub(&cur_time, &shm_conn_info->write_buf[i].last_write_time, &tv_tmp);
                    sem_post(&(shm_conn_info->write_buf_sem));
@@ -1653,7 +1647,7 @@ int res123 = 0;
             vtun_syslog(LOG_INFO, "debug: HOLD_MODE");
 #endif
         }
-        for(i=0; i<chan_amt; i++) {
+        for (i = 0; i < info.channel_amount; i++) {
             FD_SET(channels[i], &fdset);
         }
 
@@ -1689,7 +1683,7 @@ int res123 = 0;
                          last_ping = cur_time.tv_sec;
                          vtun_syslog(LOG_INFO, "PING ...");
                          // ping ALL channels! this is required due to 120-sec limitation on some NATs
-                         for(i=0; i<chan_amt; i++) { // TODO: remove ping DUP code
+                    for (i = 0; i < info.channel_amount; i++) { // TODO: remove ping DUP code
                              if( (len1 = proto_write(channels[i], buf, VTUN_ECHO_REQ)) < 0 ) {
                                  vtun_syslog(LOG_ERR, "Could not send echo request chan %d reason %s (%d)", i, strerror(errno), errno);
                                  break;
@@ -1715,7 +1709,7 @@ int res123 = 0;
              *
              * */
         //check all chans for being set..
-        for(chan_num=0; chan_num<chan_amt; chan_num++) {
+        for (chan_num = 0; chan_num < info.channel_amount; chan_num++) {
             fd0 = -1;
             if(FD_ISSET(channels[chan_num], &fdset)) {
                 fd0=channels[chan_num];
@@ -1764,7 +1758,7 @@ int res123 = 0;
                             // the opposite end has zeroed counters; zero mine!
                             vtun_syslog(LOG_INFO, "received FRAME_JUST_STARTED; zeroing counters");
                             sem_wait(&(shm_conn_info->write_buf_sem));
-                            for(i=0; i<chan_amt; i++) {
+                            for (i = 0; i < info.channel_amount; i++) {
                                 shm_conn_info->seq_counter[i] = SEQ_START_VAL;
                                 shm_conn_info->write_buf[i].last_written_seq = SEQ_START_VAL;
                             }
@@ -1860,7 +1854,7 @@ int res123 = 0;
                                 linker_term = TERM_NONFATAL;
                                 break;
                             }
-                            chan_amt = i;
+                            info.channel_amount = i;
                             channels[0] = service_channel;
                             //double call for getcockname beacause frst call returned ZERO in addr
                             laddrlen = sizeof(localaddr);
@@ -1869,7 +1863,7 @@ int res123 = 0;
                                 linker_term = TERM_NONFATAL;
                                 break;
                             }
-                            for (i = 0; i < chan_amt; i++) {
+                            for (i = 0; i < info.channel_amount; i++) {
                                 if (getsockname(channels[i], (struct sockaddr *) (&localaddr), &laddrlen) < 0) {
                                     vtun_syslog(LOG_ERR, "Channels socket getsockname error; retry %s(%d)", strerror(errno), errno);
                                     linker_term = TERM_NONFATAL;
@@ -1878,7 +1872,7 @@ int res123 = 0;
                                 channel_ports[i] = ntohs(localaddr.sin_port);
                                 vtun_syslog(LOG_INFO, " client logical channel - %i port - %i", i, channel_ports[i]);
                             }
-                            vtun_syslog(LOG_INFO,"Successfully set up %d connection channels", chan_amt);
+                            vtun_syslog(LOG_INFO,"Successfully set up %d connection channels", info.channel_amount);
                             continue;
                         } else if(flag_var == FRAME_LAST_WRITTEN_SEQ) {
 #ifdef DEBUGG
@@ -2151,7 +2145,7 @@ int res123 = 0;
         } // for chans..
 
         // if we could not create logical channels YET. We can't send data from tun to net. Hope to create later...
-        if (chan_amt <= 1) { // only service channel available
+        if (info.channel_amount <= 1) { // only service channel available
             vtun_syslog(LOG_INFO, "Logical channels have not created. Hope to create later... ");
             continue;
         }
@@ -2304,7 +2298,7 @@ int res123 = 0;
 				vtun_syslog(LOG_INFO, "PING2");
 #endif
 				// ping ALL channels! this is required due to 120-sec limitation on some NATs
-				for (i = 0; i < chan_amt; i++) { // TODO: remove ping DUP code
+            for (i = 0; i < info.channel_amount; i++) { // TODO: remove ping DUP code
 					if ((len1 = proto_write(channels[i], buf, VTUN_ECHO_REQ)) < 0) {
 						vtun_syslog(LOG_ERR, "Could not send echo request 2 chan %d reason %s (%d)", i, strerror(errno), errno);
 						break;
@@ -2347,7 +2341,7 @@ int res123 = 0;
     unlink(pid_file);
     close(mypid_file);
 
-    for(i=0; i<chan_amt; i++) {
+    for (i = 0; i < info.channel_amount; i++) {
         close(channels[i]);
     }
     close(prio_s);
@@ -2371,6 +2365,11 @@ int linkfd(struct vtun_host *host, struct conn_info *ci, int ss, int physical_ch
     shm_conn_info = ci;
     info.pid = getpid();
     info.process_num = physical_channel_num;
+    if (info.srv) {
+        info.channel_amount = 0; // first time for server, later server is getting it from client through net
+    } else {
+        info.channel_amount = lfd_host->TCP_CONN_AMOUNT;
+    }
     sem_wait(&(shm_conn_info->AG_flags_sem));
     shm_conn_info->channels_mask |= (1 << info.process_num); // add channel num to binary mask
     shm_conn_info->AG_ready_flags |= (1 << info.process_num); // start with disable AG mode
