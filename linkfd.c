@@ -161,7 +161,6 @@ struct last_sent_packet last_sent_packet_num[MAX_TCP_LOGICAL_CHANNELS]; // initi
 
 fd_set fdset, fdset_w, *pfdset_w;
 int channels[MAX_TCP_LOGICAL_CHANNELS];
-int channel_ports[MAX_TCP_LOGICAL_CHANNELS]; // client's side port num
 int delay_acc; // accumulated send delay
 int delay_cnt;
 uint32_t my_max_speed_chan;
@@ -908,22 +907,22 @@ int sem_wait_tw(sem_t *sem) {
 int ag_switcher() {
     if (info.srv) {
 #ifdef DEBUGG
-        vtun_syslog(LOG_INFO, "Server %i is calling ag_switcher()", my_physical_channel_num);
+        vtun_syslog(LOG_INFO, "Server %i is calling ag_switcher()", info.process_num);
 #endif
         for (int i = 0; i < info.channel_amount; i++) {
-            chan_info[i]->rport = channel_ports[i];
+            chan_info[i]->rport = info.channel[i].rport;
 #ifdef DEBUGG
-            vtun_syslog(LOG_INFO, "Server %i logic channel - %i lport - %i %i", my_physical_channel_num, i, chan_info[i]->rport, channel_ports[i]);
+            vtun_syslog(LOG_INFO, "Server %i logic channel - %i lport - %i %i", info.process_num, i, chan_info[i]->rport, info.channel[i].rport);
 #endif
         }
     } else {
 #ifdef DEBUGG
-        vtun_syslog(LOG_INFO, "Client %i is calling ag_switcher()", my_physical_channel_num);
+        vtun_syslog(LOG_INFO, "Client %i is calling ag_switcher()", info.process_num);
 #endif
         for (int i = 0; i < info.channel_amount; i++) {
-            chan_info[i]->lport = channel_ports[i];
+            chan_info[i]->lport = info.channel[i].lport;
 #ifdef DEBUGG
-            vtun_syslog(LOG_INFO, "Client %i logic channel - %i lport - %i %i", my_physical_channel_num, i, chan_info[i]->lport, channel_ports[i]);
+            vtun_syslog(LOG_INFO, "Client %i logic channel - %i lport - %i %i", info.process_num, i, chan_info[i]->lport, info.channel[i].lport);
 #endif
         }
     }
@@ -1048,7 +1047,6 @@ int ag_switcher() {
 int lfd_linker(void)
 {
     int service_channel = lfd_host->rmt_fd; //aka channel 0
-    info.tun_device = lfd_host->loc_fd; // virtual tun device
     int len, len1, fl;
     int err=0;
     struct timeval tv;
@@ -1202,7 +1200,12 @@ int lfd_linker(void)
         // now read one single byte
         vtun_syslog(LOG_INFO,"Waiting for client to request channels...");
 		read_n(service_channel, buf, sizeof(uint16_t)+sizeof(uint16_t));
-		info.channel_amount = ntohs(*((uint16_t *) buf));
+		info.channel_amount = ntohs(*((uint16_t *) buf)); // except info chznnel
+        info.channel = calloc(info.channel_amount +1, sizeof(*(info.channel)));
+        if (info.channel == NULL) {
+            vtun_syslog(LOG_ERR, "Cannot allocate memory for info.channel, process - %i, pid - %i",info.process_num, info.pid);
+            return 0;
+        }
 		sem_wait(&(shm_conn_info->stats_sem));
 		shm_conn_info->stats[info.process_num].pid_remote = ntohs(*((uint16_t *) (buf + sizeof(uint16_t))));
 		time_lag_local.pid_remote = shm_conn_info->stats[info.process_num].pid_remote;
@@ -1324,8 +1327,8 @@ int res123 = 0;
                 linker_term = TERM_NONFATAL;
                 break;
             }
-            channel_ports[i] = ntohs(rmaddr.sin_port);
-            vtun_syslog(LOG_ERR, "Socket peer IP channel - %i port - %i", i, channel_ports[i]);
+            info.channel[i].rport = ntohs(rmaddr.sin_port);
+            vtun_syslog(LOG_ERR, "Socket peer IP channel - %i port - %i", i, info.channel[i].rport);
         }
         if(break_out) {
             close(prio_s);
@@ -1478,8 +1481,8 @@ int res123 = 0;
                 shm_conn_info->stats[info.process_num].speed_chan_data[i].down_packet_speed =
                         (shm_conn_info->stats[info.process_num].speed_chan_data[i].down_packets / tv_tmp.tv_sec);
                 shm_conn_info->stats[info.process_num].speed_chan_data[i].down_packets = 0;
-                vtun_syslog(LOG_INFO, "download speed %lu packet/s physical channel %d logical channel %d port %d",
-                        shm_conn_info->stats[info.process_num].speed_chan_data[i].down_packet_speed, info.process_num, i, channel_ports[i]);
+//                vtun_syslog(LOG_INFO, "download speed %lu packet/s physical channel %d logical channel %d port %d",
+//                        shm_conn_info->stats[info.process_num].speed_chan_data[i].down_packet_speed, info.process_num, i, channel_ports[i]);
             }
             vtun_syslog(LOG_INFO, "Channel mode %u AG ready flags %u channels_mask %u xor result %u", tmp_flags, tmp_AG, tmp_channels_mask, (tmp_AG ^ tmp_channels_mask));
                if(cur_time.tv_sec - last_tick >= lfd_host->TICK_SECS) {
@@ -1869,8 +1872,8 @@ int res123 = 0;
                                     linker_term = TERM_NONFATAL;
                                     break;
                                 }
-                                channel_ports[i] = ntohs(localaddr.sin_port);
-                                vtun_syslog(LOG_INFO, " client logical channel - %i port - %i", i, channel_ports[i]);
+                                info.channel[i].lport = ntohs(localaddr.sin_port);
+                                vtun_syslog(LOG_INFO, " client logical channel - %i port - %i", i, info.channel[i].lport);
                             }
                             vtun_syslog(LOG_INFO,"Successfully set up %d connection channels", info.channel_amount);
                             continue;
@@ -2368,13 +2371,20 @@ int linkfd(struct vtun_host *host, struct conn_info *ci, int ss, int physical_ch
     if (info.srv) {
         info.channel_amount = 0; // first time for server, later server is getting it from client through net
     } else {
-        info.channel_amount = lfd_host->TCP_CONN_AMOUNT;
+        info.channel_amount = lfd_host->TCP_CONN_AMOUNT; // current here number of channels except service_channel
+        info.channel = calloc(info.channel_amount + 1, sizeof(*(info.channel)));
+        if (info.channel == NULL) {
+            vtun_syslog(LOG_ERR, "Cannot allocate memory for info.channel, process - %i, pid - %i",info.process_num, info.pid);
+            return 0;
+        }
+        info.channel[0].descriptor = host->rmt_fd; // service channel
     }
+    info.tun_device = host->loc_fd; // virtual tun device
     sem_wait(&(shm_conn_info->AG_flags_sem));
     shm_conn_info->channels_mask |= (1 << info.process_num); // add channel num to binary mask
     shm_conn_info->AG_ready_flags |= (1 << info.process_num); // start with disable AG mode
 #ifdef DEBUGG
-            vtun_syslog(LOG_INFO, "debug: new channel_mask %xx0 add channel - %u", shm_conn_info->channels_mask, my_physical_channel_num);
+            vtun_syslog(LOG_INFO, "debug: new channel_mask %xx0 add channel - %u", shm_conn_info->channels_mask, info.process_num);
 #endif
     sem_post(&(shm_conn_info->AG_flags_sem));
     old_prio=getpriority(PRIO_PROCESS,0);
