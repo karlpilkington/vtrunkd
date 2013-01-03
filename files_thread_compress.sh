@@ -38,7 +38,7 @@ do
    fi
 #    echo $i
 done
-lzma -9e $f0 &
-lzma -9e $f1 &
-lzma -9e $f2 &
-lzma -9e $f3 &
+lzma -9e $f0 2>/dev/null &
+lzma -9e $f1 2>/dev/null &
+lzma -9e $f2 2>/dev/null &
+lzma -9e $f3 2>/dev/null &
