@@ -332,6 +332,7 @@ struct conn_stats {
     struct speed_chan_data_struct speed_chan_data[MAX_TCP_LOGICAL_CHANNELS];
     uint32_t max_upload_speed;
     uint32_t max_send_q;
+    int32_t ACK_speed
 };
 
 
