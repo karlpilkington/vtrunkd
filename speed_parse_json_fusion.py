@@ -57,6 +57,10 @@ def plot_data(fn, data_c1, data_c2, data_s1,  data_s2):
     plt.title(DNAME+"_avg")
     plt.plot(zipj(data_s1, "ts"), zipj(data_s1, DNAME), "-", label="ACK_coming_speed_avg_1")
     plt.plot(zipj(data_s2, "ts"), zipj(data_s2, DNAME), "-", label="ACK_coming_speed_avg_2")
+    plt.plot(zipj(data_s1, "ts"), zipj(data_s1, 'magic_upload'), "-", label="magic_speed_1")
+    plt.plot(zipj(data_s2, "ts"), zipj(data_s2, 'magic_upload'), "-", label="magic_speed_2")
+    plt.plot(zipj(data_s1, "ts"), zipj(data_s1, 'upload'), "-", label="upload_1")
+    plt.plot(zipj(data_s2, "ts"), zipj(data_s2, 'upload'), "-", label="upload_2")
     plt.legend()
 
     DNAME="buf_len"    
