@@ -39,10 +39,34 @@ MAT='
 5000kbit  20ms 10ms 50%   5000kbit  10ms 10ms 50%    100kbit 200ms 50ms 50%
 ';
 
+
+while getopts :p:f OPTION
+do
+ case $OPTION in
+ f) echo "Fast test mode"
+  FASTT=true
+  ;;
+ p) echo "Prefix set $OPTARG"
+  PREFIX=$OPTARG
+  ;;
+ :)
+  echo "Option -$OPTARG requires an argument." >&2
+  exit 1
+ ;;
+ esac
+done
+
+if [[ ! -v FASTT ]]
+then
+  FASTT=false   # Initialize it to zero!
+fi
+
+
+
 TCRULES=/tmp/tcrules.sh
 LCNT=~/log_getter.counter
 COUNT=$((`cat $LCNT`+1));
-CSV=~/result${COUNT}${OPTARG}.csv
+CSV=~/result${COUNT}${PREFIX}.csv
 echo "rate1,delay1,jit1,percent1,rate2,delay2,jit2,percent2,rate3,delay3,jit3,percent3,SPEED,AG_EFF,C_GROW,C_USE,prefix" >> $CSV
 
 re="([A-Za-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9\%]+)\s+([A-Za-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9\%]+)\s+([A-Za-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9]+)\s+([a-z0-9\%]+)$"
@@ -92,7 +116,11 @@ EOF
 #done rules
 
 # run log_getter_srv.sh
-./log_getter_srv.sh -n $OPTARG
+if $FASTT; then
+    ./log_getter_srv.sh -n -f
+else
+    ./log_getter_srv.sh -n
+fi
 
 LCNT=~/log_getter.counter
 COUNT=`cat $LCNT`;

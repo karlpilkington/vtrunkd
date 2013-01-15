@@ -1004,6 +1004,9 @@ int ag_switcher() {
             max_of_max_speed = shm_conn_info->stats[i].max_upload_speed;
         }
     }
+
+    shm_conn_info->stats[my_physical_channel_num].magic_send = chan_info[my_max_send_q_chan_num]->send;
+
     sem_post(&(shm_conn_info->stats_sem));
 
     if(my_physical_channel_num){
@@ -1595,22 +1598,57 @@ int res123 = 0;
 				miss_packets_max[my_physical_channel_num] = shm_conn_info->stats[my_physical_channel_num].miss_packets_max;
 				int another_chan = my_physical_channel_num == 0 ? 1 : 0;
 				int send_q_limit_grow;
-				if (shm_conn_info->stats[my_physical_channel_num].ACK_speed > shm_conn_info->stats[another_chan].ACK_speed){
-				    send_q_limit_grow = ((90 - (int)miss_packets_max[my_physical_channel_num])*1300 - send_q_limit)/2;
+				
+                if (shm_conn_info->stats[my_physical_channel_num].ACK_speed > shm_conn_info->stats[another_chan].ACK_speed){
+				    //send_q_limit_grow = ((90 - (int32_t)miss_packets_max[my_physical_channel_num])*1300 - send_q_limit)/2;
+                    
+				    send_q_limit_grow = (90 * 1300 - send_q_limit)/2; // non-EBL
+
 				} else {
-                shm_conn_info->stats[another_chan].ACK_speed =
+                    shm_conn_info->stats[another_chan].ACK_speed =
                         shm_conn_info->stats[another_chan].ACK_speed == 0 ? 1 : shm_conn_info->stats[another_chan].ACK_speed;
-                // TODO: use WEIGHT_SCALE config variable instead of '100'. Current scale is 2 (100).
-                send_q_limit_grow = ((((90 - (int)miss_packets_max[my_physical_channel_num]) * 1300
+                    // EBL version:
+                    //send_q_limit_grow = ((((90 - (int)miss_packets_max[my_physical_channel_num]) * 1300
+                    //        *  (shm_conn_info->stats[my_physical_channel_num].ACK_speed)) / shm_conn_info->stats[another_chan].ACK_speed) - send_q_limit)/2;
+                    // non-EBL version:
+                    send_q_limit_grow = (((90  * 1300
                         *  (shm_conn_info->stats[my_physical_channel_num].ACK_speed)) / shm_conn_info->stats[another_chan].ACK_speed) - send_q_limit)/2;
 				}
+
+                // magic_speed version:
+                if (shm_conn_info->stats[my_physical_channel_num].magic_send > shm_conn_info->stats[another_chan].magic_send) {
+				    send_q_limit_grow = (90 * 1300 - send_q_limit)/2; // non-EBL
+                } else {
+                    if (shm_conn_info->stats[another_chan].magic_send > 0) {
+                        send_q_limit_grow = (((90  * 1300
+                            *  (shm_conn_info->stats[my_physical_channel_num].magic_send)) / shm_conn_info->stats[another_chan].magic_send) - send_q_limit)/2;
+                    }
+                }
+
 				send_q_limit_grow = send_q_limit_grow > 20000 ? 20000 : send_q_limit_grow;
-				send_q_limit += send_q_limit_grow;
+				/*
+                if(send_q_limit_grow > 0) {
+                    send_q_limit = send_q_limit * 150 / 100;
+                } else {
+                    send_q_limit = send_q_limit * 70 / 100;
+                }*/
+
+                send_q_limit += send_q_limit_grow;
+                /*
+
+                shm_conn_info->stats[another_chan].ACK_speed =
+                        shm_conn_info->stats[another_chan].ACK_speed == 0 ? 1 : shm_conn_info->stats[another_chan].ACK_speed;
+                if (shm_conn_info->stats[my_physical_channel_num].ACK_speed > shm_conn_info->stats[another_chan].ACK_speed){
+				    //send_q_limit = (90 - (int32_t)miss_packets_max[my_physical_channel_num]) * 1300;
+				    send_q_limit = 90 * 1300;
+				} else {
+                    //send_q_limit = ((90 - (int32_t)miss_packets_max[my_physical_channel_num]) * 1300 * shm_conn_info->stats[my_physical_channel_num].ACK_speed) / shm_conn_info->stats[another_chan].ACK_speed;
+                    send_q_limit = (90 * 1300 * shm_conn_info->stats[my_physical_channel_num].ACK_speed * 100) / shm_conn_info->stats[another_chan].ACK_speed / 100;
+                }
+                */
+                
 				send_q_limit = send_q_limit < 20 ? 20 : send_q_limit;
 	            sem_post(&(shm_conn_info->stats_sem));
-				    if( miss_packets_max[my_physical_channel_num] > 60 ) {
-				    //send_q_limit = send_q_limit - (send_q_limit >> 3);
-				}
 
 //            }
 
@@ -2358,7 +2396,8 @@ int res123 = 0;
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "debug: send time, AG_ready_flags %xx0", tmp_flags);
 #endif
-        if (1) { // it is RETRANSMIT_MODE(R_MODE)
+        //if (tmp_flags) { // it is RETRANSMIT_MODE(R_MODE)
+        if (0) { // it is RETRANSMIT_MODE(R_MODE)
 #ifdef DEBUGG
             vtun_syslog(LOG_INFO, "debug: R_MODE");
 #endif

@@ -336,6 +336,7 @@ struct conn_stats {
     uint32_t send_q_limit;
     uint16_t miss_packets_max; // get from another side
     int32_t ACK_speed;
+    int32_t magic_send;
 };
 
 
