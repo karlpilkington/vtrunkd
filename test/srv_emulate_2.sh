@@ -15,7 +15,7 @@ tc -s class ls dev eth1
 echo "eth2 : good 3g/cdma"
 tc qdisc del dev eth2 root
 tc qdisc add dev eth2 root handle 1: htb default 12
-tc class add dev eth2 parent 1:1 classid 1:12 htb rate 100kbit ceil 100kbit
+tc class add dev eth2 parent 1:1 classid 1:12 htb rate 300kbit ceil 300kbit
 tc qdisc add dev eth2 parent 1:12 netem delay 200ms 50ms 10%
 #tc qdisc add dev eth2 root handle 1:0 netem delay 200ms 50ms 50%
 #tc qdisc add dev eth2 parent 1:1 handle 10: tbf rate 7mbit buffer 50kb limit 3000
