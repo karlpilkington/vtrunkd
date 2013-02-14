@@ -127,6 +127,7 @@ int16_t miss_packets_max = 0; // get from another side
 int proto_err_cnt = 0;
 int my_max_send_q_chan_num = 0;
 uint32_t my_max_send_q = 0, max_reorder_byte = 0;
+int mypid = 0;
 
 /*Variables for the exact way of measuring speed*/
 struct timeval get_format_tcp_info_call = {0, 0}, get_format_tcp_info_call_old = {0, 0};
@@ -1116,8 +1117,8 @@ int ag_switcher() {
     uint32_t send_q_c = chan_info[my_max_send_q_chan_num]->mss * chan_info[my_max_send_q_chan_num]->cwnd;
 #if defined(DEBUGG) && defined(JSON)
     vtun_syslog(LOG_INFO,
-            "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"l_chan_num\":%i,\"max_reorder_byte\":%u,\"send_q_limit\":%i,\"my_max_send_q\":%u,\"rtt\":%f,\"rtt_var\":%f,\"my_rtt\":%i,\"magic_rtt\":%i,\"cwnd\":%u,\"incomplete_seq_len\":%i,\"rxmits\":%i,\"buf_len\":%i,\"magic_upload\":%i,\"upload\":%i,\"download\":%i,\"hold_mode\":%i,\"ACK_coming_speed\":%u,\"R_MODE\":%i, \"AG_ready_flag\":%i}",
-            my_physical_channel_num, lfd_host->host, my_max_send_q_chan_num, max_reorder_byte, send_q_limit, my_max_send_q, chan_info[my_max_send_q_chan_num]->rtt,
+            "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"pid\":%i,\"l_chan_num\":%i,\"max_reorder_byte\":%u,\"send_q_limit\":%i,\"my_max_send_q\":%u,\"rtt\":%f,\"rtt_var\":%f,\"my_rtt\":%i,\"magic_rtt\":%i,\"cwnd\":%u,\"incomplete_seq_len\":%i,\"rxmits\":%i,\"buf_len\":%i,\"magic_upload\":%i,\"upload\":%i,\"download\":%i,\"hold_mode\":%i,\"ACK_coming_speed\":%u,\"R_MODE\":%i, \"AG_ready_flag\":%i}",
+            my_physical_channel_num, lfd_host->host, mypid, my_max_send_q_chan_num, max_reorder_byte, send_q_limit, my_max_send_q, chan_info[my_max_send_q_chan_num]->rtt,
             chan_info[my_max_send_q_chan_num]->rtt_var, rtt, magic_rtt_avg, chan_info[my_max_send_q_chan_num]->cwnd, incomplete_seq_len, statb.rxmits, buf_len,
             chan_info[my_max_send_q_chan_num]->send,
             shm_conn_info->stats[my_physical_channel_num].speed_chan_data[my_max_send_q_chan_num].up_current_speed,
@@ -1201,7 +1202,7 @@ int lfd_linker(void)
         vtun_syslog(LOG_INFO, "sysconf(_SC_NPROCESSORS_ONLN) return error");
     }
 #endif
-    int mypid = getpid(); // watchdog; current pid
+    mypid = getpid(); // watchdog; current pid
     int sender_pid; // tmp var for resend detect my own pid
     /* Create if need, pid directory*/
     if (mkdir(LINKFD_PID_DIR, S_IRWXU | S_IRWXG | S_IRWXO) == -1) {
@@ -1515,8 +1516,8 @@ int res123 = 0;
             timersub(&cur_time, &json_timer, &tv_tmp_tmp_tmp);
             if (timercmp(&tv_tmp_tmp_tmp, &((struct timeval) {0, 500000}), >=)) {
                 vtun_syslog(LOG_INFO,
-                        "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"l_chan_num\":%i,\"max_reorder_byte\":%u,\"send_q_limit\":%i,\"my_max_send_q\":%u,\"rtt\":%f,\"rtt_var\":%f,\"my_rtt\":%i,\"magic_rtt\":%i,\"cwnd\":%u,\"incomplete_seq_len\":%i,\"rxmits\":%i,\"buf_len\":%i,\"magic_upload\":%i,\"upload\":%i,\"download\":%i,\"hold_mode\":%i,\"ACK_coming_speed\":%u,\"R_MODE\":%i, \"AG_ready_flag\":%i}",
-                        my_physical_channel_num, lfd_host->host, my_max_send_q_chan_num, max_reorder_byte, send_q_limit, my_max_send_q,
+                        "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"pid\":%i,\"l_chan_num\":%i,\"max_reorder_byte\":%u,\"send_q_limit\":%i,\"my_max_send_q\":%u,\"rtt\":%f,\"rtt_var\":%f,\"my_rtt\":%i,\"magic_rtt\":%i,\"cwnd\":%u,\"incomplete_seq_len\":%i,\"rxmits\":%i,\"buf_len\":%i,\"magic_upload\":%i,\"upload\":%i,\"download\":%i,\"hold_mode\":%i,\"ACK_coming_speed\":%u,\"R_MODE\":%i, \"AG_ready_flag\":%i}",
+                        my_physical_channel_num, lfd_host->host, mypid, my_max_send_q_chan_num, max_reorder_byte, send_q_limit, my_max_send_q,
                         chan_info[my_max_send_q_chan_num]->rtt, chan_info[my_max_send_q_chan_num]->rtt_var, rtt, magic_rtt_avg,
                         chan_info[my_max_send_q_chan_num]->cwnd, incomplete_seq_len, statb.rxmits, buf_len, chan_info[my_max_send_q_chan_num]->send,
                         shm_conn_info->stats[my_physical_channel_num].speed_chan_data[my_max_send_q_chan_num].up_current_speed,
@@ -2457,7 +2458,7 @@ int res123 = 0;
     sem_post(&(shm_conn_info->AG_flags_sem));
 #ifdef JSON
     vtun_syslog(LOG_INFO,
-            "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"l_chan_num\":0,\"max_reorder_byte\":0,\"send_q_limit\":0,\"my_max_send_q\":0,\"rtt\":0,\"rtt_var\":0,\"my_rtt\":0,\"magic_rtt\":0,\"cwnd\":0,\"incomplete_seq_len\":0,\"rxmits\":0,\"buf_len\":0,\"magic_upload\":0,\"upload\":0,\"download\":0,\"hold_mode\":0,\"ACK_coming_speed\":0,\"R_MODE\":0, \"AG_ready_flag\":0}", my_physical_channel_num, lfd_host->host);
+            "{\"p_chan_num\":%i,\"process_name\":\"%s\",\"pid\":%i,\"l_chan_num\":0,\"max_reorder_byte\":0,\"send_q_limit\":0,\"my_max_send_q\":0,\"rtt\":0,\"rtt_var\":0,\"my_rtt\":0,\"magic_rtt\":0,\"cwnd\":0,\"incomplete_seq_len\":0,\"rxmits\":0,\"buf_len\":0,\"magic_upload\":0,\"upload\":0,\"download\":0,\"hold_mode\":0,\"ACK_coming_speed\":0,\"R_MODE\":0, \"AG_ready_flag\":0}", my_physical_channel_num, lfd_host->host, mypid);
 #endif
 
     vtun_syslog(LOG_INFO, "process_name - %s p_chan_num : %i,  exiting linker loop", lfd_host->host,  my_physical_channel_num);
