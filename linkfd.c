@@ -1581,7 +1581,9 @@ int res123 = 0;
                         shm_conn_info->stats[my_physical_channel_num].speed_chan_data[i].down_packet_speed, my_physical_channel_num, i, channel_ports[i]);
 #endif
             }
+#ifdef DEBUGG
             vtun_syslog(LOG_INFO, "Channel mode %u AG ready flags %u channels_mask %u xor result %u", tmp_flags, tmp_AG, tmp_channels_mask, (tmp_AG ^ tmp_channels_mask));
+#endif
 //               if(cur_time.tv_sec - last_tick >= lfd_host->TICK_SECS) {
 
             	   //time_lag = old last written time - new written time
@@ -1628,7 +1630,9 @@ int res123 = 0;
                     memcpy(buf + sizeof(uint32_t) + sizeof(uint16_t), &pid_remote_h, sizeof(uint16_t));
                     memcpy(buf + sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t), &miss_packet_counter_h,
                             sizeof(shm_conn_info->miss_packets_max_send_counter));
+#ifdef DEBUGG
                     vtun_syslog(LOG_INFO, "Sending time lag.....");
+#endif
                     if ((len1 = proto_write(channels[0], buf, ((sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t)) | VTUN_BAD_FRAME))) < 0) {
                         vtun_syslog(LOG_ERR, "Could not send time_lag + pid pkt; exit"); //?????
                         linker_term = TERM_NONFATAL; //?????
@@ -1772,7 +1776,9 @@ int res123 = 0;
 
         if( !len ) {
             /* We are idle, lets check connection */
+#ifdef DEBUGG
             vtun_syslog(LOG_INFO, "idle...");
+#endif
                 /* Send ECHO request */
                 if((cur_time.tv_sec - last_action) > lfd_host->PING_INTERVAL) {
                     if(ping_rcvd) {
@@ -1780,7 +1786,9 @@ int res123 = 0;
                          gettimeofday(&cur_time, NULL);
                          ping_req_ts = ((cur_time.tv_sec) * 1000) + (cur_time.tv_usec / 1000);
                          last_ping = cur_time.tv_sec;
+#ifdef DEBUGG
                          vtun_syslog(LOG_INFO, "PING ...");
+#endif
                          // ping ALL channels! this is required due to 120-sec limitation on some NATs
                          for(i=0; i<chan_amt; i++) { // TODO: remove ping DUP code
                              if( (len1 = proto_write(channels[i], buf, VTUN_ECHO_REQ)) < 0 ) {
@@ -1994,8 +2002,10 @@ int res123 = 0;
                                     sizeof(shm_conn_info->miss_packets_max_recv_counter));
                             miss_packets_max_recv_counter = ntohl(miss_packets_max_recv_counter);
 							sem_wait(&(shm_conn_info->stats_sem));
+#ifdef DEBUGG
 							vtun_syslog(LOG_INFO, "recv pid - %i packet_miss - %u",time_lag_local.pid, miss_packets_max_tmp);
 							vtun_syslog(LOG_INFO, "Miss packet counter was - %u recv - %u",shm_conn_info->miss_packets_max_recv_counter, miss_packets_max_recv_counter);
+#endif
 //                            if ((miss_packets_max_recv_counter > shm_conn_info->miss_packets_max_recv_counter)) {
                                 shm_conn_info->miss_packets_max_recv_counter = miss_packets_max_recv_counter;
                                 for (int i = 0; i < MAX_TCP_PHYSICAL_CHANNELS; i++) {
