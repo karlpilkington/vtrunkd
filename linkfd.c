@@ -1022,7 +1022,9 @@ int ag_switcher() {
     int speed_success = 0;
 
     /* ACK_coming_speed recalculation */
+#ifdef TRACE
     vtun_syslog(LOG_INFO,"sended_bytes - %u send_q_full - %u send_q_full_old - %u",sended_bytes,send_q_full,send_q_full_old);
+#endif
     int skip_time_usec = magic_rtt_avg / 10 * 1000;
     skip_time_usec = skip_time_usec > 999000 ? 999000 : skip_time_usec;
     skip_time_usec = skip_time_usec < 5000 ? 5000 : skip_time_usec;
@@ -1040,7 +1042,9 @@ int ag_switcher() {
         sem_post(&(shm_conn_info->stats_sem));
         speed_success = 1;
     } else if (ACK_coming_speed == SPEED_ALGO_SLOW_SPEED) {
+#ifdef DEBUGG
         vtun_syslog(LOG_WARNING, "ERROR - speed very slow, need to wait more bytes");
+#endif
     } else if (ACK_coming_speed == SPEED_ALGO_OVERFLOW) {
         memcpy(&get_format_tcp_info_call_old, &get_format_tcp_info_call, sizeof(struct timeval));
         send_q_full_old = send_q_full;
@@ -1054,9 +1058,13 @@ int ag_switcher() {
         sem_post(&(shm_conn_info->stats_sem));
         speed_success = 1;
     } else if (ACK_coming_speed == SPEED_ALGO_HIGH_SPEED) {
-        vtun_syslog(LOG_WARNING, "ERROR - speed very high, need to wait more time");
+#ifdef DEBUGG
+        vtun_syslog(LOG_WARNING, "WARNING - speed very high, need to wait more time");
+#endif
     } else if (ACK_coming_speed == SPEED_ALGO_EPIC_SLOW) {
+#ifdef DEBUGG
         vtun_syslog(LOG_WARNING, "WARNING - speed very slow much time!!!");
+#endif
     }
 
     if (speed_success) {
