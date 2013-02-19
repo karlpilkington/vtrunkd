@@ -1698,10 +1698,7 @@ int res123 = 0;
                            for(imf=0; imf < incomplete_seq_len; imf++) {
                                if(check_sent(incomplete_seq_buf[imf], sq_rq_buf, &sq_rq_pos, i)) continue;
                                tmp_l = htonl(incomplete_seq_buf[imf]);
-                               if( memcpy(buf, &tmp_l, sizeof(unsigned long)) < 0) {
-                                   vtun_syslog(LOG_ERR, "memcpy imf");
-                                   err=1;
-                               }
+                               memcpy(buf, &tmp_l, sizeof(unsigned long));
                                *((unsigned short *)(buf+sizeof(unsigned long))) = htons(FRAME_MODE_RXMIT);
                                vtun_syslog(LOG_INFO,"Requesting bad frame (MAX_LATENCY) id %lu chan %d", incomplete_seq_buf[imf], i); // TODO HERE: remove this (2 places) verbosity later!!
                                //statb.rxmit_req++;
@@ -2231,11 +2228,7 @@ int res123 = 0;
                             	// TODO: use free channel to send packets that are late to fight the congestion
                                 if(check_sent(incomplete_seq_buf[imf], sq_rq_buf, &sq_rq_pos, chan_num_virt)) continue;
                                 tmp_l = htonl(incomplete_seq_buf[imf]);
-                                if( memcpy(buf, &tmp_l, sizeof(unsigned long)) < 0) {
-                                    vtun_syslog(LOG_ERR, "memcpy imf 2");
-                                    linker_term = TERM_FATAL;
-                                    break;
-                                }
+                                memcpy(buf, &tmp_l, sizeof(unsigned long));
                                 *((unsigned short *)(buf+sizeof(unsigned long))) = htons(FRAME_MODE_RXMIT);
                                 vtun_syslog(LOG_INFO,"Requesting bad frame MAX_REORDER incomplete_seq_len %d blen %d seq_num %lu chan %d",incomplete_seq_len, buf_len, incomplete_seq_buf[imf], chan_num_virt);
                                 //statb.rxmit_req++;
@@ -2262,11 +2255,7 @@ int res123 = 0;
                             ((succ_flag == 0) || ( (seq_num-shm_conn_info->write_buf[chan_num_virt].last_written_seq) < lfd_host->MAX_REORDER ))) {
                         vtun_syslog(LOG_INFO, "sending FRAME_MODE_NORM to notify THIS channel is now OK");
                         tmp_l = htonl(incomplete_seq_buf[0]);
-                        if( memcpy(buf, &tmp_l, sizeof(unsigned long)) < 0) {
-                            vtun_syslog(LOG_ERR, "memcpy imf 2plpl");
-                            linker_term = TERM_FATAL;
-                            break;
-                        }
+                        memcpy(buf, &tmp_l, sizeof(unsigned long));
                         *((unsigned short *)(buf+sizeof(unsigned long))) = htons(FRAME_MODE_NORM);
                         statb.chok_not++;
                         if ((len1 = proto_write(channels[chan_num_virt], buf, ((sizeof(unsigned long) + sizeof(flag_var)) | VTUN_BAD_FRAME))) < 0) {
