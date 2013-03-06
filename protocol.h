@@ -23,5 +23,8 @@
 
 int protocol_dead_send(char *buf, int fd, uint16_t dead_channel);
 int protocol_lws_send(char *buf, int fd, uint16_t lws);
+int protocol_request_frame(char *buf, int fd, uint32_t seq_num);
+int protocol_echo_request(char *buf, int fd);
+int protocol_just_started(char *buf, int fd, uint32_t seq_num);
 
 #endif /* PROTOCOL_H_ */
